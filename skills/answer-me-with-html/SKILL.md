@@ -1,6 +1,6 @@
 ---
 name: answer-me-with-html
-argument-hint: "[config [key value] | clean | update]"
+display-name: Answer me with HTML
 description: >-
   Turns an answer into a one-page visual HTML explainer: the model writes a short Markdown draft and
   the bundled CLI builds one page. Use it proactively and liberally, without being asked, whenever a
@@ -23,9 +23,7 @@ Reply to the user, and write the draft, in the user's language.
 
 ## 0. When the user wants to change settings
 
-Arguments for this call: `$ARGUMENTS`
-
-When the arguments start with `config`, `clean` or `update`, or the user asks to change a setting, clean up pages or update this skill: read `${CLAUDE_SKILL_DIR}/references/settings.md` and follow it. That turn produces no page.
+This package runs in the Favonis project sandbox. Read `/skills/answer-me-with-html/references/settings.md` when the user asks to change settings, clean scratch files or update the skill. That turn produces no page.
 
 ## 1. Decide: produce a page or not
 
@@ -37,26 +35,17 @@ Produce a page if any of these is true:
 
 Otherwise answer in plain text. When unsure: the more the question "needs a picture to understand", the more it calls for a page.
 
-### Always-on mode
-
-If the context contains the `[answer-me-with-html always-on]` reminder (the user added the always-on rule to a rules file such as `CLAUDE.md` or `AGENTS.md`), the bar is lower:
-
-- Whenever this turn gives a conclusion, summary, plan, comparison, review or explanation, attach a page.
-- Do not skip it because "the answer is short". If there is a conclusion, produce a page.
-- For everyday conclusions use a small page with 2–4 panels: one callout with the conclusion, plus one table or one diagram. Do not add panels just to fill space.
-- Render with `--no-open`, so no browser window interrupts the user. The user opens the page by clicking the path at the end of the reply.
-- Order: render the page first, then write the text reply. The reply is the last thing in the turn, with the page link on its last line (see step 5). Do not write the reply and then call `am render`.
-- Produce no page for small talk, one or two sentences with no conclusion, pure command output, or when the user asks for plain text.
+For everyday conclusions use a small page with 2–4 panels. Do not change global agent rules or install an always-on rule. Favonis controls availability through the user's skill selection.
 
 ## 2. Workflow (one Bash call)
 
 The CLI is bundled in this skill's directory: `scripts/am.mjs`, a single file with no dependencies to install; it needs only Node.js 20+. Below, `am` always means:
 
 ```bash
-node "${CLAUDE_SKILL_DIR}/scripts/am.mjs"
+AM_HOME=/tmp/answer-me-with-html AM_NO_OPEN=1 AM_NO_UPDATE_CHECK=1 node /skills/answer-me-with-html/scripts/am.mjs
 ```
 
-In Claude Code, the path above is replaced with this skill's directory automatically. If you see the variable unreplaced (other agents), replace it with the absolute path of the directory that contains this SKILL.md. If the user installed the `am` command globally, you can also use `am` directly.
+Run it with the `shell` tool in `/project`. The skill directory is read-only. Keep scratch state under `/tmp/answer-me-with-html`; explicitly use `-o outputs/<descriptive-name>.html` for every deliverable. Preserve the upstream themes, layout, diagrams and page controls. Do not restyle them to match the Favonis app. No package installation is needed.
 
 1. First list 3–8 panels in your head. Each panel answers one sub-question only.
    The draft language follows the language of the user's question: an English question gets an English draft, a Chinese question a Chinese draft, a Japanese question a Japanese draft. The page button labels, `<html lang>` and the STE check rules switch automatically by the draft language (a draft containing kana counts as Japanese); STE applies the English or Chinese rules to each sentence by its language (Japanese sentences get only the sentence-length and paragraph-length checks, with the same character limits as Chinese; any other language gets only those two checks, counted in words). To set the language yourself, write `lang:` in the frontmatter: `en`, `zh` (Simplified Chinese), `zh-Hant` or `zh-TW` (Traditional Chinese), `ja`, or any other language tag such as `fr` or `ko`. Detection reads Chinese (Simplified, or Traditional when the text has characters written in only one form), Japanese, Korean, and Cyrillic, Arabic, Hebrew, Thai and Greek text, and reads all Latin-script text as English. Declare the language when the user writes a Latin-script language other than English, when a Chinese text is too short or too plain to show Traditional characters, or when an exact tag matters (Arabic script also writes Persian, Cyrillic also Ukrainian). A language without its own labels still gets the right `<html lang>`, with English page labels.
@@ -64,7 +53,8 @@ In Claude Code, the path above is replaced with this skill's directory automatic
 3. Render in one go with a heredoc:
 
 ````bash
-node "${CLAUDE_SKILL_DIR}/scripts/am.mjs" render - <<'AM_EOF'
+mkdir -p outputs
+AM_HOME=/tmp/answer-me-with-html AM_NO_OPEN=1 AM_NO_UPDATE_CHECK=1 node /skills/answer-me-with-html/scripts/am.mjs render - --no-open -o outputs/explanation.html <<'AM_EOF'
 ---
 title: Title
 ---
@@ -76,18 +66,17 @@ AM_EOF
 ````
 
 4. Read the output:
-   - `✓ <path>`: success. Whether the browser opens automatically depends on the user's settings (`am config`); `--no-open` affects only this run.
+   - `✓ <path>`: rendering succeeded. Also check the shell's project saving result; a local file is not delivered until it is saved successfully.
    - `✗ L<line> [component] …` + `Correct example:`: fix that line following the example, then render again.
    - `code n warnings`: a code block is longer than 40 lines, or a diff hunk has a different number of lines than its `@@` header says. Cut the block or fix the header to the lines that make the point and render again, or keep it if every line matters.
    - `STE n warnings`: rewrite the flagged lines as suggested, then render again. Retry at most 2 rounds; if warnings remain, keep the page and say so.
-   - `! Cleanup hint: …` or `! Update hint: …`: pass it on to the user in one sentence at the end of the reply, and ask whether to clean up / update. **Do not run am clean or the update command yourself**; wait until the user agrees. The CLI throttles these: the cleanup hint appears at most once every 7 days, the update hint at most once every 3 days.
-5. Reply in the terminal with only 2–3 lines: one core conclusion + the page link. Do not paste the draft or the HTML back into the terminal. Write this reply after the render, as the last step of the turn: render the page first, then reply. No tool call comes after the reply.
-   Write the page link as a Markdown link to a `file://` URL, with the URL as the label too: `[file:///abs/path.html](file:///abs/path.html)`. Take the absolute path from the `✓` line and add `file://` in front; do not percent-encode it. GUI hosts (Codex, Antigravity) render this as a clickable link, and a terminal still shows the full URL.
+   - Cleanup applies only to the scratch home. Skill updates are managed by Favonis administrators through the official repository; never self-update or write to `/skills`.
+5. After the shell confirms the HTML was saved, call `present_files` with the project-relative path, for example `{"paths":["outputs/explanation.html"]}`. The user can preview the original HTML or download it. Do not return a sandbox `file://` URL, invent a download URL or paste the HTML into the reply. Then give a short conclusion in the user's language. If saving fails or is deferred, report that state instead of claiming delivery.
 
 When a page already exists and only one panel needs to change, do not rewrite the whole page. Take the source draft from the HTML's `#am-source`, replace only the matching `##` section, and overwrite the page in place:
 
 ````bash
-node "${CLAUDE_SKILL_DIR}/scripts/am.mjs" patch page.html --panel "Panel title" <<'AM_EOF'
+AM_HOME=/tmp/answer-me-with-html AM_NO_OPEN=1 AM_NO_UPDATE_CHECK=1 node /skills/answer-me-with-html/scripts/am.mjs patch outputs/explanation.html --no-open --panel "Panel title" <<'AM_EOF'
 ## A Panel title
 New content
 AM_EOF
@@ -173,6 +162,6 @@ A reply starts with `# Re: <page title>` and lists `Decisions` and `Comments`, i
 
 ## 7. Explainer videos (am video, 3Blue1Brown style)
 
-Use only when the user explicitly asks for a video ("make a video", "explain it as a video", "3b1b style", "explainer video"). Do not produce a video unasked in always-on mode either.
+Use only when the user explicitly asks for a video ("make a video", "explain it as a video", "3b1b style", "explainer video").
 
-Before you write a video draft, read `${CLAUDE_SKILL_DIR}/references/video.md` and follow it.
+Before you write a video draft, read `/skills/answer-me-with-html/references/video.md` and follow it.

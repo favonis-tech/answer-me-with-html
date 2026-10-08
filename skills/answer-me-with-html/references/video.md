@@ -1,11 +1,12 @@
 # Explainer videos (am video, 3Blue1Brown style)
 
-Read this when SKILL.md section 7 sends you here. `am` means the full `node ".../scripts/am.mjs"` command from SKILL.md section 2; write the path out in full, because `${CLAUDE_SKILL_DIR}` is not replaced in this file.
+Read this when SKILL.md section 7 sends you here. Use the full sandbox command from SKILL.md section 2 for every `am` command, with `AM_HOME=/tmp/answer-me-with-html`, `AM_NO_OPEN=1` and `AM_NO_UPDATE_CHECK=1`. Run in `/project` and explicitly set the output under `outputs/`.
 
 A video draft has the same format as a page draft, with one extra rule: lines starting with `>` are narration, one beat per line.
 
 ````bash
-am video - --no-open <<'AM_EOF'
+mkdir -p outputs
+AM_HOME=/tmp/answer-me-with-html AM_NO_OPEN=1 AM_NO_UPDATE_CHECK=1 node /skills/answer-me-with-html/scripts/am.mjs video - --no-open -o outputs/explainer.html <<'AM_EOF'
 ---
 title: The TCP three-way handshake
 subtitle: Why three
@@ -32,5 +33,5 @@ AM_EOF
 - Narration is read aloud, so write it as speech, as if explaining to someone face to face: transitions like `你看`, `那问题来了`, `我们换个角度看` are fine, and characters' "lines" go in quotes. Do not write it like a manual (`客户端发送 SYN 报文以请求建立连接`). Sentence length is still subject to the STE check.
 - The look follows the theme in the settings by default (usually the blueprint drawing style). When the user wants "that dark 3b1b style", write `theme: 3b1b` in the frontmatter.
 - Narration voice: the default is `--voice auto`: ElevenLabs when `ELEVENLABS_API_KEY` is set, otherwise system TTS (macOS say), and subtitles only when neither is available. When the user says "no sound", add `--voice off`. When the user runs a local OpenAI-compatible speech service and has set `AM_TTS_URL`, use `--voice local`.
-- The output is a single-file player page under `~/.answer-me-with-html/videos/` (audio embedded). When the user wants a video file, add `--mp4`; this needs Chrome, ffmpeg and Node.js 22+ on the machine, and export takes about 1.3 times the video length.
-- Full syntax: `am help video`. In the terminal, reply with one sentence plus the player page link (and the MP4 link), written as in step 5 of section 2 of SKILL.md.
+- The output is a single-file player page (audio embedded). Always set `-o outputs/<name>.html`. When the user requests a video file, add `--mp4`; check Chrome, ffmpeg and Node.js 22+ in the actual sandbox first. A speech provider is required for narration; do not promise narration when only subtitles are available.
+- Full syntax: `am help video`. Confirm the shell saved the output files, then call `present_files` with their project-relative paths as described in SKILL.md. Return a short conclusion; sandbox-local URLs cannot deliver files to the user.

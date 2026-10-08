@@ -1,15 +1,13 @@
-# Settings, clean-up and updates
+# Settings, scratch cleanup and updates in Favonis
 
-Read this when SKILL.md section 0 sends you here.
+Use the `shell` tool in `/project`. For each CLI command, use:
 
-When the arguments for this call (shown in section 0 of SKILL.md) start with `config` (for example `/answer-me-with-html config open off`), this turn handles settings only and produces no page:
+```bash
+AM_HOME=/tmp/answer-me-with-html AM_NO_OPEN=1 AM_NO_UPDATE_CHECK=1 node /skills/answer-me-with-html/scripts/am.mjs
+```
 
-- `config`: run `am config` to show the current settings, then let the user choose. Where the agent has a choice tool such as AskUserQuestion, use it: at most 4 settings at a time, these first: `open`, `theme`, `mode`, `style`, with the current value marked in the options. Otherwise ask in plain text.
-- `config <key> <value>`: run `am config set <key> <value>`.
-- `config reset [key]`: run `am config reset [key]`.
-
-When the user asks in natural language ("stop opening the browser", "use the card theme by default"), also convert it to `am config set`. Settings: `open` (auto-open the browser), `theme`, `mode`, `style`, `voice` (video narration), `update_check` (new-version notices). Run `am config` to see all descriptions.
-
-When the arguments start with `clean`, or the user asks to clean up pages / the cache: first run `am clean --dry-run` and tell the user how many items and how much space will be deleted. Run `am clean` only after the user agrees (add `--all` to delete all pages and videos, `--days N` to change how many days to keep).
-
-When the arguments start with `update`, or the user asks to update this skill: update according to how it was installed. Installed with `npx skills`: run `npx skills update answer-me-with-html -y`. Installed as a Claude Code plugin: run `claude plugin update answer-me-with-html@answer-me-with-html` (or ask the user to click Update now in `/plugin` → Installed), then ask the user to run `/reload-plugins`. Installed with git clone: run `git pull && npm install` in the repository directory.
+- Prefer per-document `theme:`, `mode:` and `style:` settings in the draft. Preserve the original themes and the user's requested visual style.
+- `config` lists settings; `config set <key> <value>` changes the scratch configuration for this sandbox. It is temporary and may disappear when the sandbox is replaced. Do not promise account-wide persistence.
+- Keep automatic browser opening and upstream update checks disabled. Favonis owns preview and package updates.
+- `clean --dry-run` reports scratch cleanup. Only run `clean` after the user requests that cleanup. It does not clean saved project deliverables; use the project file workflow for those.
+- Package updates are performed by an administrator using **Sync official repository** in Favonis. Do not run package installers, `git pull`, plugin update commands or write into `/skills` from a conversation.
