@@ -1,40 +1,78 @@
 // New-version notice: once a week a background child process reads package.json on GitHub and writes the result into state.json;
-// on the next render, if a new version exists, print one "! Update hint" line for the Agent, which asks the user. Never updates automatically.
+// on the next render, if a new version exists, print one "! Update hint" line for the Agent, which asks the user, and put a
+// new-version button on the page. Never updates automatically.
 import { spawn } from 'node:child_process';
 import { DAY, writeState } from './state.js';
+import { parseVersion, newer } from './version.js';
 
 export const UPDATE = Object.freeze({
   checkEveryDays: 7,
   hintEveryDays: 3,
   timeoutMs: 5000,
   url: 'https://raw.githubusercontent.com/QingYunA/answer-me-with-html/main/package.json',
+  highlightsUrl: 'https://raw.githubusercontent.com/QingYunA/answer-me-with-html/main/highlights.json',
 });
 
-const SEMVER = /^v?(\d+)\.(\d+)\.(\d+)$/;
+// highlights.json: { "version": "x.y.z", "<language id>": ["line", ...], ... }, written in the release PR (CONTRIBUTING.md).
+export const HIGHLIGHTS = Object.freeze({ lines: 3, chars: 80 });
+const LANGUAGE_ID = /^[a-z]{2,3}(-[A-Za-z]{2,8})*$/;
 
-export function parseVersion(v) {
-  const m = String(v).trim().match(SEMVER);
-  return m ? m.slice(1, 4).map(Number) : null;
+// The highlight lists of highlights.json when it describes `version`: { <language id>: [line, ...] }, or null. Only plain one-line
+// text within the limits is kept; the page escapes it and the CLI never prints it, so remote text stays out of the Agent's context.
+export function parseHighlights(data, version) {
+  if (!data || typeof data !== 'object' || Array.isArray(data) || data.version !== version) return null;
+  const lists = Object.entries(data).flatMap(([id, lines]) => {
+    if (!LANGUAGE_ID.test(id) || !Array.isArray(lines)) return [];
+    const kept = lines
+      .filter((l) => typeof l === 'string' && l.trim() && l.length <= HIGHLIGHTS.chars && !/[\u0000-\u001f\u007f]/.test(l))
+      .slice(0, HIGHLIGHTS.lines)
+      .map((l) => l.trim());
+    return kept.length ? [[id, kept]] : [];
+  });
+  return lists.length ? Object.fromEntries(lists) : null;
 }
 
-// Whether a is newer than b. Returns false when either is not in x.y.z format.
-export function newer(a, b) {
-  const pa = parseVersion(a);
-  const pb = parseVersion(b);
-  if (!pa || !pb) return false;
-  const i = pa.findIndex((n, k) => n !== pb[k]);
-  return i !== -1 && pa[i] > pb[i];
+export { parseVersion, newer };
+
+// The update command for each install method, as the user types it. dsh needs the
+// profile and the package name, so it is filled in by dshUpdateCommand.
+export const UPDATE_COMMANDS = Object.freeze({
+  plugin: 'claude plugin update answer-me-with-html@answer-me-with-html',
+  repo: 'git pull && npm install',
+  skills: 'npx skills update answer-me-with-html -y',
+  dsh: 'dsh plugin --profile <profile> up <package>',
+});
+
+// How this copy was installed. scriptPath is the path of the running am script.
+export function installMethod(scriptPath = '') {
+  if (/[\\/]\.claude[\\/]plugins[\\/]/.test(scriptPath)) return 'plugin';
+  if (/[\\/]bin[\\/]am\.js$/.test(scriptPath)) return 'repo';
+  if (/[\\/]\.dsh[\\/]profiles[\\/][^\\/]+[\\/]node_modules[\\/]/.test(scriptPath)) return 'dsh';
+  return 'skills';
 }
 
-// Give the update command for the install method. scriptPath is the path of the running am script.
+// The DSH profile and package name, from ~/.dsh/profiles/<profile>/node_modules/<package>/… — null when
+// the path does not parse (a linked copy outside a profile, or a layout that changed).
+const DSH_PATH = /[\\/]\.dsh[\\/]profiles[\\/]([^\\/]+)[\\/]node_modules[\\/]((?:@[^\\/]+[\\/])?[^\\/]+)/;
+// Only plain names go into a command the agent runs or the user pastes; anything else stays a placeholder.
+const PROFILE_NAME = /^[\w.-]+$/;
+const PACKAGE_NAME = /^(@[a-z0-9][\w.-]*\/)?[a-z0-9][\w.-]*$/i;
+function dshUpdateCommand(scriptPath = '') {
+  const m = scriptPath.match(DSH_PATH);
+  if (!m) return UPDATE_COMMANDS.dsh;
+  const pkg = m[2].replace(/\\/g, '/');
+  return `dsh plugin --profile ${PROFILE_NAME.test(m[1]) ? m[1] : '<profile>'} up ${PACKAGE_NAME.test(pkg) ? pkg : '<package>'}`;
+}
+
+// Give the update command for the install method, as an instruction for the Agent.
 export function updateCommand(scriptPath = '') {
-  if (/[\\/]\.claude[\\/]plugins[\\/]/.test(scriptPath)) {
-    return 'run claude plugin update answer-me-with-html@answer-me-with-html in a terminal (or click Update now on the Installed tab of /plugin), then /reload-plugins';
+  const method = installMethod(scriptPath);
+  if (method === 'plugin') {
+    return `run ${UPDATE_COMMANDS.plugin} in a terminal (or click Update now on the Installed tab of /plugin), then /reload-plugins`;
   }
-  if (/[\\/]bin[\\/]am\.js$/.test(scriptPath)) {
-    return 'run git pull && npm install in the answer-me-with-html repository';
-  }
-  return 'run npx skills update answer-me-with-html -y';
+  if (method === 'repo') return `run ${UPDATE_COMMANDS.repo} in the answer-me-with-html repository`;
+  if (method === 'dsh') return `run ${dshUpdateCommand(scriptPath)}`;
+  return `run ${UPDATE_COMMANDS.skills}`;
 }
 
 // update_check off, CI and AM_NO_UPDATE_CHECK each turn off both the background check and the update notice.
@@ -44,6 +82,15 @@ export function updateHint(state, current, scriptPath, now = Date.now()) {
   if (!newer(state.latestVersion, current)) return null;
   if (state.lastUpdateHint && now - state.lastUpdateHint < UPDATE.hintEveryDays * DAY) return null;
   return `! Update hint: Answer me with HTML ${state.latestVersion} is available (current ${current}). Ask the user whether to update: ${updateCommand(scriptPath)}.`;
+}
+
+// The new-version button on the page: { latest, current, command } when a newer version is known, else null. Unlike updateHint it
+// is not throttled: the button is quiet until the user clicks it, so every page made while this copy is out of date carries it.
+export function pageUpdate(state, current, scriptPath, env, config) {
+  if (!updateEnabled(env, config) || !newer(state.latestVersion, current)) return null;
+  const highlights = parseHighlights({ ...state.latestHighlights, version: state.latestVersion }, state.latestVersion);
+  const command = installMethod(scriptPath) === 'dsh' ? dshUpdateCommand(scriptPath) : UPDATE_COMMANDS[installMethod(scriptPath)];
+  return { latest: state.latestVersion, current, command, highlights };
 }
 
 export function shouldCheckUpdate(state, env, config, now = Date.now()) {
@@ -62,16 +109,24 @@ export function spawnUpdateCheck(home, scriptPath) {
   }
 }
 
-// Accept only x.y.z version numbers and ignore anything else, so arbitrary remote text never reaches the Agent's context.
+// Accept only x.y.z version numbers and ignore anything else, so arbitrary remote text never reaches the Agent's context. The
+// highlights go only into state.json and the page (parseHighlights).
 export async function runUpdateCheck(home, fetchImpl = fetch) {
   try {
-    const res = await fetchImpl(UPDATE.url, { signal: AbortSignal.timeout(UPDATE.timeoutMs) });
-    if (!res.ok) return null;
-    const { version } = await res.json();
+    const { version } = await fetchJson(fetchImpl, UPDATE.url);
     if (!parseVersion(version)) return null;
-    writeState(home, { latestVersion: version.trim(), lastUpdateCheck: Date.now() });
-    return version.trim();
+    const latest = version.trim();
+    // The highlights are optional: a missing or malformed file leaves the version check as it was.
+    const highlights = parseHighlights(await fetchJson(fetchImpl, UPDATE.highlightsUrl).catch(() => null), latest);
+    writeState(home, { latestVersion: latest, latestHighlights: highlights, lastUpdateCheck: Date.now() });
+    return latest;
   } catch {
     return null;
   }
+}
+
+async function fetchJson(fetchImpl, url) {
+  const res = await fetchImpl(url, { signal: AbortSignal.timeout(UPDATE.timeoutMs) });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
 }

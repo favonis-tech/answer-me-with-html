@@ -1,5 +1,5 @@
 // Build the project website into site/dist/ (npm run site).
-// - assets/engine.js: the real renderer (src/) bundled for the browser, for the live playground.
+// - assets/engine.js: the real renderer (src/) bundled for the browser, for the live playground, plus assets/temml.js, which only a draft with math loads.
 // - assets/: the page's own scripts and styles, copied as they are, plus the logo.
 // - presets/: the playground's sample drafts, and presets/index.json with all of them for one fetch.
 // - prerender/: example pages and videos rendered by the bundled CLI.
@@ -7,8 +7,9 @@
 import { build } from 'esbuild';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
-import { dirname, join, relative } from 'node:path';
+import { basename, dirname, join, relative } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { gzipSync } from 'node:zlib';
 import { inlineAssets } from '../scripts/inline-assets.mjs';
@@ -17,6 +18,13 @@ const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const SITE = join(ROOT, 'site');
 const SRC = join(SITE, 'src');
 const REPO = 'QingYunA/answer-me-with-html';
+// Where the site is published (GitHub Pages with a custom domain). Absolute URLs in the pages (canonical, hreflang, share images) start here.
+const SITE_URL = 'https://answer-me-with-html.com/';
+// The visit counter is served from a subdomain of the site, so the analytics server behind it stays private.
+// Cloudflare proxies the subdomain and only lets the tracker and its event endpoint through.
+// data-domains in the tag (see site/template.html) keeps local previews from counting.
+export const STATS_SCRIPT = 'https://stats.answer-me-with-html.com/script.js';
+export const STATS_WEBSITE_ID = '6cfdb29e-3e32-432f-8371-a2aee22393ad';
 
 // The page's own browser files, copied to assets/ without changes.
 const FRONT_FILES = ['main.js', 'playground.js', 'style.css'];
@@ -28,8 +36,8 @@ const PRERENDER = [
   ['render', 'examples/tcp.md', 'tcp-zh.html'],
 ];
 const PAGES = [
-  { lang: 'en', htmlLang: 'en', out: 'index.html', alt: 'zh/' },
-  { lang: 'zh', htmlLang: 'zh-CN', out: 'zh/index.html', alt: '../' },
+  { lang: 'en', htmlLang: 'en', out: 'index.html', alt: 'zh/', path: '' },
+  { lang: 'zh', htmlLang: 'zh-CN', out: 'zh/index.html', alt: '../', path: 'zh/' },
 ];
 
 // Node built-ins the render path imports, answered in the browser by node-stub.js.
@@ -40,11 +48,28 @@ const nodeStub = {
   },
 };
 
-// Bundle site/src/engine.js for the browser. Returns { file, bytes, gzip }.
+// Temml's minified browser build, wrapped as an ES module. The engine imports it as './temml.js' on demand (src/math-load.js),
+// so a draft without math never downloads it. The CLI does the same with a string, see scripts/build.mjs.
+const TEMML_FILE = 'temml.js';
+const temmlSource = {
+  name: 'temml-source',
+  setup(b) {
+    b.onResolve({ filter: /^temml$/ }, (args) => (args.kind === 'dynamic-import' ? { path: `./${TEMML_FILE}`, external: true } : { path: 'temml', namespace: 'temml-min' }));
+    b.onLoad({ filter: /.*/, namespace: 'temml-min' }, () => {
+      const min = readFileSync(createRequire(import.meta.url).resolve('temml/dist/temml.min.js'), 'utf8');
+      return { loader: 'js', contents: `export default (function () {\n${min}\nreturn temml;\n})();\n` };
+    });
+  },
+};
+
+const sized = (file) => {
+  const code = readFileSync(file);
+  return { file, bytes: code.length, gzip: gzipSync(code).length };
+};
+
+// Bundle site/src/engine.js for the browser, and Temml as temml.js next to it. Returns { file, bytes, gzip, temml: { file, bytes, gzip } }.
 export async function bundleEngine(outfile) {
-  await build({
-    entryPoints: [join(SRC, 'engine.js')],
-    outfile,
+  const shared = {
     bundle: true,
     platform: 'browser',
     format: 'esm',
@@ -52,13 +77,17 @@ export async function bundleEngine(outfile) {
     minify: true,
     legalComments: 'none',
     inject: [join(SRC, 'process-shim.js')],
-    plugins: [inlineAssets, nodeStub],
+    plugins: [inlineAssets, nodeStub, temmlSource],
     logLevel: 'warning',
-  });
-  const code = readFileSync(outfile);
-  const leaks = [/\brequire\(/, /\bprocess\./, /\bBuffer\b/, /["']node:/].filter((re) => re.test(code.toString('utf8')));
-  if (leaks.length) throw new Error(`The browser engine still names Node-only code: ${leaks.join(', ')}`);
-  return { file: outfile, bytes: code.length, gzip: gzipSync(code).length };
+  };
+  const temmlFile = join(dirname(outfile), TEMML_FILE);
+  await build({ ...shared, entryPoints: [join(SRC, 'engine.js')], outfile });
+  await build({ ...shared, entryPoints: ['temml'], outfile: temmlFile });
+  for (const file of [outfile, temmlFile]) {
+    const leaks = [/\brequire\(/, /\bprocess\./, /\bBuffer\b/, /["']node:/].filter((re) => re.test(readFileSync(file, 'utf8')));
+    if (leaks.length) throw new Error(`${basename(file)} still names Node-only code: ${leaks.join(', ')}`);
+  }
+  return { ...sized(outfile), temml: sized(temmlFile) };
 }
 
 const kb = (n) => `${(n / 1024).toFixed(1)} KB`;
@@ -115,6 +144,16 @@ function copyImages(dist) {
   copyFileSync(join(ROOT, 'docs/logo.svg'), join(dist, 'favicon.svg'));
   mkdirSync(join(dist, 'images'), { recursive: true });
   for (const name of IMAGES) copyFileSync(join(ROOT, 'docs/images', name), join(dist, 'images', name));
+}
+
+// sitemap.xml lists both language pages, each with the same alternates as the hreflang links in <head>: both languages and x-default (the English page).
+// robots.txt points at it and keeps the prerendered examples, which only appear inside the page's frames, out of search.
+function writeSearchFiles(dist) {
+  const variants = [...PAGES.map((p) => [p.htmlLang, p.path]), ['x-default', '']];
+  const alternates = variants.map(([hreflang, path]) => `    <xhtml:link rel="alternate" hreflang="${hreflang}" href="${SITE_URL}${path}"/>`).join('\n');
+  const urls = PAGES.map((p) => `  <url>\n    <loc>${SITE_URL}${p.path}</loc>\n${alternates}\n  </url>`).join('\n');
+  writeFileSync(join(dist, 'sitemap.xml'), `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">\n${urls}\n</urlset>\n`);
+  writeFileSync(join(dist, 'robots.txt'), `User-agent: *\nDisallow: /prerender/\n\nSitemap: ${SITE_URL}sitemap.xml\n`);
 }
 
 // The stargazer count, or '' when it cannot be read (offline, rate-limited); the build never fails on it.
@@ -179,7 +218,7 @@ async function writePages(dist, version) {
   if (!starCount) warn('could not read the GitHub star count; {{STARS}} is empty');
   const pages = PAGES.map((p) => {
     const base = '../'.repeat(p.out.split('/').length - 1);
-    const builtins = { LANG: p.htmlLang, VERSION: version, BASE: base, ALT_HREF: p.alt, STARS: starCount };
+    const builtins = { LANG: p.htmlLang, VERSION: version, BASE: base, ALT_HREF: p.alt, STARS: starCount, SITE_URL, CANONICAL: SITE_URL + p.path, STATS_SCRIPT, STATS_WEBSITE_ID };
     const { html, missing } = fillTemplate(template, dicts[p.lang], builtins);
     if (missing.length) problems.push(`site/template.html uses keys site/i18n/${p.lang}.js does not define: ${missing.join(', ')}`);
     return { ...p, html };
@@ -200,6 +239,7 @@ async function main() {
 
   const engine = await bundleEngine(join(dist, 'assets/engine.js'));
   console.log(`✓ assets/engine.js ${kb(engine.bytes)} (gzip ${kb(engine.gzip)})`);
+  console.log(`✓ assets/temml.js ${kb(engine.temml.bytes)} (gzip ${kb(engine.temml.gzip)}), loaded only for a draft with math`);
   copyFrontFiles(dist);
   console.log(`✓ presets/index.json (${copyPresets(dist)} drafts)`);
   prerender(dist);
@@ -207,6 +247,8 @@ async function main() {
   copyImages(dist);
   await writePages(dist, version);
   console.log(`✓ index.html, zh/index.html → ${relative(ROOT, dist)}/`);
+  writeSearchFiles(dist);
+  console.log('✓ sitemap.xml, robots.txt');
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

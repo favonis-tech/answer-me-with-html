@@ -8,6 +8,11 @@
   <b>Super Fast&nbsp;&nbsp;|&nbsp;&nbsp;ASD-STE100&nbsp;&nbsp;|&nbsp;&nbsp;Explainer Videos&nbsp;&nbsp;|&nbsp;&nbsp;One File, Offline</b>
 </p>
 
+
+<p align="center">
+  <img src="docs/images/text-vs-page.png" alt="The same TCP question answered in plain text and with the skill: a wall of terminal text on the left, one readable page with diagrams on the right" width="100%">
+</p>
+
 <p align="center">
   <b>An agent skill. Ask a hard question, get a page you can actually read instead of a wall of text.<br>The model writes about 1/8 of the tokens it would need to hand-write the HTML.</b>
 </p>
@@ -15,16 +20,12 @@
 <p align="center">
   <a href="https://github.com/QingYunA/answer-me-with-html/releases"><img src="https://img.shields.io/github/v/release/QingYunA/answer-me-with-html?style=flat-square&logo=github&labelColor=16181d&color=2ea44f" alt="Release"></a>
   <a href="https://github.com/QingYunA/answer-me-with-html/stargazers"><img src="https://img.shields.io/github/stars/QingYunA/answer-me-with-html?style=flat-square&logo=github&labelColor=16181d&color=2ea44f" alt="Stars"></a>
-  <img src="https://img.shields.io/badge/works%20with-Claude%20Code%20%C2%B7%20Codex%20%C2%B7%20Cursor%20%C2%B7%20OpenCode%20%C2%B7%20Pi-2ea44f?style=flat-square&labelColor=16181d" alt="Works with Claude Code, Codex, Cursor, OpenCode, Pi">
+  <img src="https://img.shields.io/badge/works%20with-Claude%20Code%20%C2%B7%20Codex%20%C2%B7%20Cursor%20%C2%B7%20OpenCode%20%C2%B7%20Pi%20%C2%B7%20DeepSeek%20Harness-2ea44f?style=flat-square&labelColor=16181d" alt="Works with Claude Code, Codex, Cursor, OpenCode, Pi, DeepSeek Harness">
   <a href="https://www.theagenticleaderboard.com/alternatives/answer-me-with-html/"><img src="https://www.theagenticleaderboard.com/badges/new/answer-me-with-html.svg" alt="The New 100"></a>
 </p>
 
 <p align="center">
-  <a href="https://qingyuna.github.io/answer-me-with-html/"><b>Website</b></a> · <a href="#install">Install</a> · <a href="#what-you-ask-what-you-get">Examples</a> · <a href="#explainer-videos">Videos</a> · <a href="#always-on-mode-recommended">Always-on mode</a> · <a href="docs/reference.md">Reference</a> · <a href="README.zh-CN.md">简体中文</a>
-</p>
-
-<p align="center">
-  <img src="docs/images/text-vs-page.png" alt="The same TCP question answered in plain text and with the skill: a wall of terminal text on the left, one readable page with diagrams on the right" width="100%">
+  <a href="https://answer-me-with-html.com/"><b>Website</b></a> · <a href="#install">Install</a> · <a href="#what-you-ask-what-you-get">Examples</a> · <a href="#explainer-videos">Videos</a> · <a href="#always-on-mode-recommended">Always-on mode</a> · <a href="docs/reference.md">Reference</a> · <a href="README.zh-CN.md">简体中文</a>
 </p>
 
 Once installed, ask questions the way you always do:
@@ -90,6 +91,14 @@ Run this inside Claude Code:
 /plugin install answer-me-with-html@answer-me-with-html
 ```
 
+### DeepSeek Harness plugin
+
+Run this in a terminal, with the profile you run in (`web` is the shipped one):
+
+```bash
+dsh plugin --profile web add github:QingYunA/answer-me-with-html
+```
+
 ### One command
 
 ```bash
@@ -152,7 +161,7 @@ Server -> Client: SYN-ACK
 > The [Server] answers with a SYN-ACK.
 ````
 
-`am video` turns it into a player page. The diagram builds step by step with the narration, and the camera follows the node named in brackets. The voice is inside the page, so it plays offline. Add `--mp4` for a video file. The agent only makes videos when you ask. Details: [video guide](docs/video.md).
+`am video` turns it into a player page. The diagram builds step by step with the narration, and the camera follows the node named in brackets. The voice is inside the page, so it plays offline. The player has a chapter strip to jump between scenes, a speed button, and an export button that encodes the video in the browser and downloads it (a local file or `localhost`, no ffmpeg). Add `--mp4` for an MP4 file (needs ffmpeg), or `--webm` for a WebM file the page encodes itself (no ffmpeg). The agent only makes videos when you ask. Details: [video guide](docs/video.md).
 
 ## Settings
 
@@ -164,7 +173,7 @@ Change settings with a slash command. There are no config files to edit by hand.
 | Any agent | `/answer-me-with-html config open off`, or just say "stop opening the browser" |
 | Terminal | `am config` to view, `am config set open off` to change, `am config reset` to restore defaults |
 
-The settings are `open` (open pages in the browser), `theme`, `mode` (light or dark), `style` (writing check), `update_check` and `voice` (video narration). Defaults and values: [reference](docs/reference.md#settings).
+The settings are `open` (open pages in the browser), `theme`, `mode` (light or dark), `style` (writing check), `update_check`, `close_after_reply` (close the tab after the reply is copied) and `voice` (video narration). Defaults and values: [reference](docs/reference.md#settings).
 
 ## Always-on mode (recommended)
 
@@ -248,6 +257,7 @@ The agent picks a component by the shape of the information:
 | Component | Good for |
 | :--- | :--- |
 | `flow` | Architecture, call chains, decision branches. Auto layout, with groups, decisions and databases |
+| `er` | A data model: entities with their columns (PK / FK / UK) and crow's-foot relationships |
 | `sequence` | Messages going back and forth between several parties over time |
 | `tree` | Folders, modules, taxonomies |
 | `timeline` | History, releases, phases |
@@ -285,7 +295,13 @@ There are two runtime dependencies: [marked](https://github.com/markedjs/marked)
 
 ## Community
 
-Discussion and feedback also happen on [LINUX DO](https://linux.do), a Chinese-language developer forum.
+Ask questions, share pages you made, suggest features, or just say hi.
+
+- [Discord](https://discord.gg/sYQuRRZNzQ)
+- QQ group: `1127099407`
+- [LINUX DO](https://linux.do), a Chinese-language developer forum
+
+Found a bug? Please open a [GitHub issue](https://github.com/QingYunA/answer-me-with-html/issues).
 
 ## Star History
 
@@ -299,4 +315,4 @@ Discussion and feedback also happen on [LINUX DO](https://linux.do), a Chinese-l
 
 ## License
 
-[MIT](LICENSE)
+[MIT](LICENSE). The Bangers font that a theme can embed is under the [SIL Open Font License 1.1](skills/answer-me-with-html/licenses/OFL-Bangers.txt).

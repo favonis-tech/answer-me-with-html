@@ -109,7 +109,6 @@ const ui = {
 export default {
   meta_title: 'Answer me with HTML：提一个难题，拿到一页图解',
   meta_desc: '一个 Agent Skill，支持 Claude Code、Codex、Cursor 等。模型只写一份简短的 Markdown 稿件，自带的 CLI 把它排成一页离线可看的 HTML，模型要写的 token 约为手写 HTML 的 1/8。',
-  canonical: 'https://qingyuna.github.io/answer-me-with-html/zh/',
   og_locale: 'zh_CN',
   og_image: 'text-vs-page-zh.png',
   og_image_alt: '同一个 TCP 问题的两种回答：一堵终端文字墙，和一页带图表的页面',
@@ -337,6 +336,8 @@ export default {
   i_agent_note: '<a href="https://github.com/QingYunA/answer-me-with-html/blob/main/INSTALL.md">INSTALL.md</a> 是写给 Agent 看的：已有安装会保留，全程不向你提问，最后用 TCP 页面验证一遍，给你一份汇报。',
   i_plugin: 'Claude Code 插件',
   i_plugin_d: '在 Claude Code 里依次执行：',
+  i_dsh_d: '在终端里执行，把 skill 装成 DeepSeek Harness 插件：',
+  i_dsh_note: '换成你在用的 profile，自带的是 <code>web</code>。下一个会话就能用。',
   i_npx_d: '它会问你装到哪个 Agent。安装器来自 <a href="https://github.com/vercel-labs/skills">vercel-labs/skills</a>，支持 70 多种 Agent。',
   i_manual: '手动安装',
   i_manual_d: '把 <code>skills/answer-me-with-html</code> 目录放进你的 Agent 的 skill 目录。以 Claude Code 为例：',
@@ -358,7 +359,7 @@ export default {
   f_source: '源码',
   f_community: '社区',
   f_drawn: '本站',
-  f_drawn_v: '用它自己的 blueprint 主题画成。没有框架、外部字体和统计脚本',
+  f_drawn_v: '用它自己的 blueprint 主题画成。没有框架，没有外部字体。只用 Umami 做匿名的访问和点击统计，不用 cookie。',
 
   ui_json: JSON.stringify(ui).replace(/</g, '\\u003c'),
 };

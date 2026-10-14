@@ -32,7 +32,9 @@ Full syntax for a component: `am help <component>`.
 
 ## Answer on the page
 
-Every page has a **Reply** button. The reader comments on any panel (the speech-bubble button in its title bar) and copies one Markdown reply back to the agent. Answers and comments survive a reload.
+Every page has a **Reply** button. The reader comments on any panel (the speech-bubble button in its title bar) and copies one Markdown reply back to the agent. Answers and comments survive a reload. Once the reader answers, comments or remarks, a bar at the bottom of the page shows the counts and copies the reply in one click; the Reply sheet shows the reply drawn, with the copied Markdown under a fold.
+
+The **Remark** button turns on block marking. While it is on, the reader clicks a paragraph, list item, quote, code block, table or $$ formula block, picks a kind (suggestion, keep, question or concern) and may add a note. The mark shows on the block, survives a reload, and comes back in the reply under Remarks with the start of the block quoted. A page title or panel title takes no mark; use the panel comment for it.
 
 For a decision the reader must make, write an `ask` block in the panel it changes:
 
@@ -46,7 +48,7 @@ Which cache do we use?
 
 - The first line is the question. Each option starts with `*` (the suggestion, selected at the start) or `-`. Write 2 to 6 options.
 - One choice needs exactly one `*`. `ask multi` lets the reader pick several; `*` marks the options that start picked.
-- The reply says for each decision whether the reader changed it, confirmed the suggestion, or did not answer it. Comment text comes back quoted with `>`.
+- The reply says for each decision whether the reader changed it, confirmed the suggestion, or did not answer it. Comment text and remark notes come back quoted with `>`.
 
 Full syntax: `am help ask`.
 
@@ -101,6 +103,31 @@ For something a diagram cannot show, such as a real screen, use an image that al
 
 Full syntax: `am help image`.
 
+## Math
+
+For a formula in the text, write LaTeX between dollar signs:
+
+```markdown
+The weight of a vertex is $w(v)=\prod_{u\prec v}N_u^{-1}$.
+
+$$
+\widehat g=\sum_{i=1}^{n} w_i\widehat A_i\nabla_\theta\log\pi_\theta(a_i\mid s_i)
+$$
+```
+
+- `$…$` is an inline formula. A block is a line with only `$$`, the TeX on the lines after it, and a line with only `$$`; one line `$$ E = mc^2 $$` also works. A block has no blank line inside it.
+- [Temml](https://temml.org) typeset the TeX when the page is made and writes MathML, so the page needs no script and no network. A page with math carries a small math font (about 9 KB) and its styles; a page without math is unchanged. The formula takes the colour of the text, so every theme and mode works.
+- A formula stays left to right on a right-to-left page.
+- A display formula that is wider than its panel scrolls inside the panel. An inline formula wraps after a relation or an operator (`=`, `+`) in Chrome and Firefox; Safari does not wrap it. Put a long formula in a `$$` block.
+- A dollar sign that is not a formula stays text. The opening `$` has a non-space after it. The closing `$` has a non-space before it and no digit after it, so `$5 and $10` and `$5-$10` stay text. A closing `$` with a letter (A-Z, a-z) or `_` after it does not close either, so `$PATH:$HOME` stays text; write `$n$-th`, not `$n$th`. Write `\$` for a dollar sign. An inline formula is on one line.
+- Math works in the text of paragraphs, lists, tables, quotes, headings, callouts, `kv`, `ask`, `timeline` and `tree`. Code spans, code blocks, diagrams (`flow`, `er`, `sequence` and the others) and `am video` take no math. In a table cell write `\vert x \vert`, not `|x|`.
+- If Temml cannot read the TeX, the page is still written. The formula shows as raw TeX in red and monospace (the message is in its tooltip), and the render prints a warning with the draft line, like `L12 [math] $\foo$ is shown as raw TeX: ...`. A page with a math warning does not open; fix the TeX and render again with `--replace`.
+- `\ref`, `\eqref` and `\label` need a script that the page does not have. They give a warning and show nothing. `\tag{1}` works in a `$$` block.
+- A Remark or a Reply quotes a formula as the TeX you wrote, with its `$` or `$$`: `Energy $E = mc^2$ holds`.
+- The writing check skips the TeX.
+
+Syntax in the CLI: `am help format`.
+
 ## Use the CLI directly, without an agent
 
 The CLI is `scripts/am.mjs` inside the skill folder.
@@ -125,7 +152,7 @@ A -> B: hello
 AM_EOF
 ````
 
-Pages go to `~/.answer-me-with-html/pages/` by default. Set `AM_HOME` to move them.
+Pages go to `~/.answer-me-with-html/pages/` by default. Set `AM_HOME` to move them. A page with STE or code warnings does not open in the browser (add `--open` to open it anyway). To render the fixed draft again, run `am render … --replace <page>`: the earlier page is deleted once the new one is written, so `pages/` keeps one page per answer. The default folder is private to your user (mode 0700), so other users on a shared host cannot read your pages; an existing `AM_HOME` folder keeps its mode.
 
 ## Languages
 
@@ -137,9 +164,12 @@ The language of a draft sets the page's `lang` attribute, the language of the bu
 | `zh-Hant`, `zh-TW`, `zh-HK`, `zh-MO` | as written | Traditional Chinese, with Traditional fonts first |
 | `en`, `en-US` and other English tags | as written | English |
 | `ja`, `ja-JP` | as written | Japanese, with Japanese fonts first |
+| `he`, `he-IL` | as written | Hebrew, with Hebrew fonts first; the page is right to left |
 | any other tag, such as `fr` or `ko` | as written | English labels |
 
 A tag is written as you declare it: `zh-tw` and `zh_TW` both become `zh-TW`. An empty, `und` or invalid value is ignored and the text decides.
+
+A right-to-left language (`he`, `ar`, `fa`, `ur`, `yi`) also gets `<html dir="rtl">`. The page mirrors: text, panels, tables, the table of contents and the toolbar start from the right; `flow` and `sequence` diagrams are drawn as their mirror image, so the first node or participant is on the right and arrows point left; timelines, trees and limits bars start from the right. Code blocks, diffs and inline code stay left to right, and so does any run of text with no right-to-left letter (a path such as `src/`, a key such as `lint:` at the start of a label, a domain, a signed number), so its punctuation stays where it was written. Hebrew has its own labels, Hebrew names for common frontmatter keys (`author`, `date`, `source`, `version` ...) and a day.month.year render date; the other right-to-left languages use English labels. A video page (`am video`) follows the same rule: the title block, the scenes, the captions, and the chapter strip start from the right, while the controls row (play button, clock, progress bar, speed and export) stays left to right, as in common video players. Exported MP4 and WebM files carry the mirrored picture.
 
 | Script in the text | Detected as |
 | :--- | :--- |
@@ -176,17 +206,51 @@ Put one JSON file per theme in `~/.answer-me-with-html/themes/`. The file name i
 - Light and dark must each set every color variable. `am help theme` lists them and shows the whole format.
 - Name installed fonts only. The default fonts are added as the fallback, so a reader without your fonts still gets readable text.
 - In `css`, start every selector with `&`. It stands for the theme's root, so the rules apply only under this theme.
+- `font` (optional) names a font this tool ships. A page rendered with the theme embeds it, so it needs no network and the other pages do not grow. The only value for now is `bangers` ([Bangers](https://github.com/googlefonts/bangers), SIL OFL 1.1); use the family in `css`, for example `& .am-head h1 { font-family: "Bangers", Impact, sans-serif; }`. A version that does not know the field ignores it and shows the fallback font. Video pages do not embed the font.
+- `requires` (optional) is the oldest version of this tool the theme supports, as `x.y.z`. On an older version the theme is skipped with `needs Answer me with HTML x.y.z or newer`; a version that does not know the field ignores it.
+- Keep the file self-contained: no `url()` or `image-set()` to `http:`, `https:` or `//`, no `@import`, no `@font-face` and no backslash escapes (they can hide a link from the check). A link would send a request every time someone opens a page, and pages work offline. `am theme check` warns about them; your existing theme keeps working. A future theme catalog will reject them.
 - Each page carries the built-in themes plus its own theme, so it still opens on any machine.
-- `am theme check notes` reports missing variables, invalid colors and low contrast in light and dark, and renders two specimen pages with every component.
+- `am theme check notes` reports missing variables, invalid colors and low contrast in light and dark, warns about external resources, and renders two specimen pages with every component.
+
+The classes your `css` may target stay stable: a later version keeps every one of them, and never adds a required color variable.
+
+| Part | Classes |
+| :--- | :--- |
+| Page head | `.am-head`, `.am-head h1`, `.am-head-meta`, `.am-intro` |
+| Panel | `.am-panel`, `.am-panel--bare`, `.am-panel-head`, `.am-panel-head h2`, `.am-panel-id`, `.am-panel-meta`, `.am-panel-body` |
+| Content | `.am-md`, `.am-callout`, `.am-callout--ok`, `.am-callout--warn`, `.am-callout--err`, `.am-callout-title`, `.am-kv` |
+| Drawing frame | `.am-frame`, `.am-ruler` |
+
+## Opening pages from a remote machine
+
+If your agent runs on a remote or headless machine, `am serve` lets you open its pages in your own browser over `http://`. Run it in a terminal on that machine and leave it running:
+
+````bash
+am serve              # http://127.0.0.1:8765, Ctrl-C to stop; --port N changes the port (0 picks a free one)
+ssh -L 8765:127.0.0.1:8765 user@host   # on your own computer, then open the links in your browser
+am serve --lan        # also listen on the local network (0.0.0.0), only on a network you trust
+am serve --public-url https://pages.example.com   # links use this address, for a reverse proxy or tunnel that adds TLS
+````
+
+- While it runs, `am render`, `am patch` and `am video` print a `link:` line for each page they write into `~/.answer-me-with-html/pages/` or `videos/`, and the agent gives you that link instead of a `file://` one.
+- By default the server listens on `127.0.0.1` only, and the SSH tunnel is the recommended way to reach it. There is no password and no TLS.
+- `--lan` makes the server listen on `0.0.0.0`, every IPv4 interface and not only the address in the links, so another computer on the same network can open the links. It prints every LAN address with a warning, and the links use the first one: 192.168.x.x before 10.x.x.x before 172.16-31.x.x. The connection is plain HTTP and the token in a link is a bearer secret, so anyone on that network who sees the traffic or the link can open the page. Use it only on a trusted network, behind a firewall.
+- `--public-url https://host` is for a reverse proxy or tunnel that you run in front of `am serve` and that adds TLS. It sets the address that `link:` lines start with and the `Host` name the server accepts. It does not create TLS or open any port itself. Give it an origin only, with no path. Without `--lan` the server still listens on `127.0.0.1`, so the proxy must run on the same machine, and it must pass on the original `Host` header.
+- Without those flags the server answers only to `localhost`, `127.0.0.1` and `[::1]`; a request for any other host name or IP is a 404. Do not expose the port to the internet.
+- Links are per page: each one carries a token for that one page, and it does not open any other page. They stop working when the server restarts. The server shows no folder listing and serves only `.html` files.
+- Treat a link as the password of its page: anyone who can reach the port and has the link can open the page, including other users of the same machine. Share it only with yourself.
+- Give the tunnel a local port of its own. Do not reuse a port where you opened pages from another server or another host: a page from that other server could have left a service worker in your browser for that address, and it would see the pages served there later.
+- Each page opens in a browser sandbox of its own, so a script in one page cannot read another. Because of that, Reply answers, comments and remarks on an `http://` link last only until you close the page: copy the reply before you close it.
 
 ## Updating and cleaning up
 
-**Updating.** Updates are manual, and the tool tells you when one is out. Once a week, a background process downloads this project's `package.json` from GitHub to read the latest version number. Nothing about you or your pages is sent, and the page you asked for never waits on it. When there is a newer version, the next render adds a one-line notice and the agent asks whether you want to update. Turn this off with `/answer-me-with-html:config update_check off`.
+**Updating.** Updates are manual, and the tool tells you when one is out. Once a week, a background process downloads this project's `package.json` and `highlights.json` from GitHub to read the latest version number and its highlights. Nothing about you or your pages is sent, and the page you asked for never waits on it. When there is a newer version, the next render adds a one-line notice and the agent asks whether you want to update. Each page made while you are out of date also has a "New version" button at the start of the toolbar; click it for up to three highlights of the new version in the page language, the update command and a copy button. `am serve` takes the button out of a page it sends to another device (`--lan` or `--public-url`), and the page itself never goes online. Turn this off with `/answer-me-with-html:config update_check off`.
 
 | Installed with | Update with |
 | :--- | :--- |
 | `npx skills add` | `npx skills update answer-me-with-html -y`, or tell your agent "update answer-me-with-html" |
 | `git clone` + `npm link` | `git pull && npm install` in the repository |
+| DeepSeek Harness plugin | `dsh plugin --profile <profile> up <package>`; the update notice fills in the profile and the package |
 | Claude Code plugin | In a terminal run `claude plugin update answer-me-with-html@answer-me-with-html` (or open `/plugin` → Installed → Update now), then `/reload-plugins`. To update automatically, turn on auto-update for this marketplace in `/plugin` → Marketplaces. Claude Code leaves it off for third-party marketplaces |
 
 **Cleaning up.** Pages, videos and the narration cache build up in `~/.answer-me-with-html/`. If that folder grows past 200 MB, or passes 20 MB with no cleanup for 30 days, the agent asks once a week whether to clean it. Nothing is deleted without your OK.
@@ -205,9 +269,12 @@ Put one JSON file per theme in `~/.answer-me-with-html/themes/`. The file name i
 | `mode` | `auto` | Default color mode: `auto`, `light` or `dark` |
 | `style` | `80` | Writing check: `off`, `80` (warn only) or `strict` (refuse to render) |
 | `update_check` | `on` | Check GitHub for a new version once a week and mention it. Never updates by itself |
+| `close_after_reply` | `off` | Close the page tab 3 seconds after you copy the reply, with a countdown and a Keep open button. See the note below |
 | `voice` | `auto` | Video narration: `auto` (ElevenLabs if `ELEVENLABS_API_KEY` is set, else system voice), `elevenlabs`, `local`, `system` or `off` |
 
 Settings live in `~/.answer-me-with-html/config.json`. A theme written in a draft beats the default. `--open` and `--no-open` affect one run only.
+
+`close_after_reply` applies to pages made while it is on. Pages that `am serve` sends keep your answers only until the tab closes, so with this setting on the answers go with the tab; the clipboard still holds the reply. A browser refuses to close a tab after a link in the page has moved it (for example a contents link), and then the page says that you can close the tab yourself.
 
 ## Less proactive
 

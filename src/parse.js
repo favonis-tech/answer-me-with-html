@@ -45,7 +45,9 @@ const NUMERIC_KEYS = new Set(['cols', 'span']);
 const FENCE_OPEN = /^(`{3,}|~{3,})\s*([^\s`]*)\s*(.*)$/;
 const PANEL_HEADING = /^##\s+(.+?)\s*$/;
 const ATTR_BLOCK = /\s*\{([^{}]*)\}\s*$/;
-const PANEL_ID = /^([A-Z][0-9]?)\s+(.+)$/;
+// A leading capital is an ID only when the title after it does not start with a lowercase letter: "## A miss goes…" and
+// "## I think…" are sentences, not ID + title (#208). The lookahead also rejects a space, so \s+ cannot backtrack past it.
+const PANEL_ID = /^([A-Z][0-9]?)\s+(?![\s\p{Ll}])(.+)$/u;
 const ATTR_TOKEN = /([\w-]+)(?:=("[^"]*"|'[^']*'|\S+))?/g;
 
 // defaults: default values from the user config (e.g. theme / mode / style); values set explicitly in the draft frontmatter win.
@@ -68,7 +70,9 @@ function parseFrontmatter(lines, base, allowed) {
   for (let i = 1; i < end; i++) {
     const raw = stripLineComment(lines[i]).trim();
     if (!raw || raw.startsWith('#')) continue;
-    const m = raw.match(/^([\w-]+)\s*:\s*(.*)$/);
+    // A key is letters of any script (a Hebrew or Chinese key such as `עודכן` shows in the meta row as written), digits, _ and -,
+    // and may hold single spaces between words.
+    const m = raw.match(/^([\p{L}\p{M}\p{N}_-]+(?: [\p{L}\p{M}\p{N}_-]+)*)\s*:\s*(.*)$/u);
     if (!m) throw new ParseError(`Cannot parse frontmatter line "${lines[i]}"; expected key: value`, i + 1);
     entries[m[1]] = { value: coerce(m[1], unquote(m[2])), line: i + 1 };
   }

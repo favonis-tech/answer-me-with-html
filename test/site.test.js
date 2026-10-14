@@ -5,15 +5,15 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { bundleEngine, fillTemplate } from '../site/build.mjs';
+import { bundleEngine, fillTemplate, STATS_SCRIPT, STATS_WEBSITE_ID } from '../site/build.mjs';
 import { renderDoc } from '../src/render.js';
 import { CONFIG_KEYS } from '../src/config.js';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const read = (file) => readFileSync(file, 'utf8');
 // The footer names the minute the page was made; two renders can fall in different minutes.
-const fixClock = (html) => html.replace(/ · \d{4}-\d\d-\d\d \d\d:\d\d<\/footer>/, ' · CLOCK</footer>');
-const isPage = (html) => html.startsWith('<!doctype html>') && html.includes('<footer class="am-colophon">') && html.includes('id="am-source"');
+const fixClock = (html) => html.replace(/ · \d{4}-\d\d-\d\d \d\d:\d\d<\/p>/, ' · CLOCK</footer>');
+const isPage = (html) => html.startsWith('<!doctype html>') && html.includes('<p class="am-colophon">') && html.includes('id="am-source"');
 
 function listFiles(dir) {
   return readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? listFiles(join(dir, e.name)) : [join(dir, e.name)]));
@@ -77,6 +77,16 @@ test('site engine: a local file degrades into the usual not-found error', () => 
   assert.match(r.error.message, /not found/);
 });
 
+test('site engine: prepare loads Temml for a draft with math, so render typesets it', async () => {
+  const draft = '# T\n\nThe area is $x^2$.\n';
+  assert.equal(/<math dir=/.test(engine.render(draft).html), false);
+  await engine.prepare(draft);
+  const r = engine.render(draft);
+  assert.equal(r.ok, true);
+  assert.match(r.html, /<math dir="ltr"/);
+  assert.match(r.html, /@font-face[^}]*Temml/);
+});
+
 test('site engine: lint checks plain prose with lines counted in the text', () => {
   const warnings = engine.lint('This method is utilized prior to the request.', 'en');
   assert.ok(warnings.some((w) => w.rule === 'word' && w.line === 1), JSON.stringify(warnings));
@@ -89,12 +99,42 @@ test('site build: fills built-in keys first and reports unknown ones', () => {
   assert.deepEqual(missing, ['nope']);
 });
 
-test('site build: the built pages load no script or style from another site', { skip: !existsSync(join(ROOT, 'site/dist/index.html')) }, () => {
+const BUILT = { skip: !existsSync(join(ROOT, 'site/dist/index.html')) };
+
+test('site build: the built pages load no script or style from another site, except the visit counter', BUILT, () => {
   for (const page of ['index.html', 'zh/index.html']) {
     const html = read(join(ROOT, 'site/dist', page));
     // canonical and hreflang links name the site's own address and load nothing, so only links that fetch count.
     const loaders = [...html.matchAll(/<script\b[^>]*>|<link\b[^>]*\brel=["']?(?:stylesheet|modulepreload|preload|icon)\b[^>]*>/gi)].map((m) => m[0]);
     const external = loaders.filter((tag) => /\s(?:src|href)=["']?(?:https?:)?\/\//i.test(tag));
-    assert.deepEqual(external, [], page);
+    assert.equal(external.length, 1, `${page}: ${external.join(' ')}`);
+    assert.ok(external[0].startsWith('<script') && external[0].includes(`src="${STATS_SCRIPT}"`), `${page}: ${external[0]}`);
   }
+});
+
+test('site build: both pages carry the visit counter for the site domain only', BUILT, () => {
+  for (const page of ['index.html', 'zh/index.html']) {
+    const html = read(join(ROOT, 'site/dist', page));
+    const tags = html.match(/<script\b[^>]*\bsrc="https:\/\/stats\.[^>]*>/g) ?? [];
+    assert.equal(tags.length, 1, page);
+    assert.match(tags[0], /\sdefer\b/);
+    assert.ok(tags[0].includes(`src="${STATS_SCRIPT}"`), page);
+    assert.ok(tags[0].includes(`data-website-id="${STATS_WEBSITE_ID}"`), page);
+    assert.ok(tags[0].includes('data-domains="answer-me-with-html.com"'), page);
+  }
+});
+
+test('site build: sitemap.xml lists both pages with the head alternates and robots.txt points at it', { skip: !existsSync(join(ROOT, 'site/dist/sitemap.xml')) }, () => {
+  const sitemap = read(join(ROOT, 'site/dist/sitemap.xml'));
+  for (const page of ['https://answer-me-with-html.com/', 'https://answer-me-with-html.com/zh/']) assert.ok(sitemap.includes(`<loc>${page}</loc>`), page);
+  const urls = sitemap.match(/<url>[\s\S]*?<\/url>/g) ?? [];
+  assert.equal(urls.length, 2);
+  for (const url of urls) {
+    assert.deepEqual(url.match(/<xhtml:link [^>]*\/>/g), [
+      '<xhtml:link rel="alternate" hreflang="en" href="https://answer-me-with-html.com/"/>',
+      '<xhtml:link rel="alternate" hreflang="zh-CN" href="https://answer-me-with-html.com/zh/"/>',
+      '<xhtml:link rel="alternate" hreflang="x-default" href="https://answer-me-with-html.com/"/>',
+    ]);
+  }
+  assert.match(read(join(ROOT, 'site/dist/robots.txt')), /^Sitemap: https:\/\/answer-me-with-html\.com\/sitemap\.xml$/m);
 });

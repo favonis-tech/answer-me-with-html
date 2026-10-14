@@ -8,11 +8,13 @@ import { pageCss } from './themes/index.js';
 import { BUILTIN, AUTO, pickTheme } from './themes/registry.js';
 import { lintDoc } from './lint/ste.js';
 import { esc } from './svg/text.js';
-import { VERSION, RUNTIME_JS, DELTA_JS } from './assets.js';
+import { VERSION, RUNTIME_JS, DELTA_JS, UPDATE_JS, CLOSE_AFTER_JS } from './assets.js';
 import { rootTag, rootCarrierAttrs, sourceTag } from './page.js';
 import { resolveLanguage } from './language.js';
 import { inlineImages, ImageError, IMAGE_EXAMPLE } from './images.js';
 import { renderCode, CodeError } from './code.js';
+import { isolateLtrRuns } from './bidi.js';
+import { hasMath } from './math.js';
 
 
 export class RenderError extends Error {
@@ -37,7 +39,9 @@ export class LintError extends Error {
 // previousLanguage: the language the page had before (a patched page keeps it unless the draft declares one).
 // baseDir: where relative image paths are read from; codeDir: where relative code paths are read from (the folder the agent works in).
 // knownImages / knownCode: what the page already embeds, the fallback when a file is gone.
-export function renderDoc(source, overrides = {}, defaults = {}, { themes = BUILTIN, previousLanguage, baseDir, codeDir, knownImages, knownCode } = {}) {
+// update: { latest, current, command, highlights } from pageUpdate in src/update.js when a newer version is known; the page then has a new-version button.
+// closeAfter: the close_after_reply setting; the page then closes its tab a few seconds after the reply is copied (src/runtime/close-after-reply.js).
+export function renderDoc(source, overrides = {}, defaults = {}, { themes = BUILTIN, previousLanguage, baseDir, codeDir, knownImages, knownCode, update, closeAfter = false } = {}) {
   const choices = { theme: themes.choices('page') };
   const parsed = parseDoc(source, { defaults, choices });
   const meta = applyOverrides(parsed.meta, overrides, { ...CHOICES, ...choices });
@@ -51,15 +55,17 @@ export function renderDoc(source, overrides = {}, defaults = {}, { themes = BUIL
   const warnings = doc.meta.style === 'off' ? [] : lintDoc(doc, language);
   if (doc.meta.style === 'strict' && warnings.length) throw new LintError(warnings);
 
-  const stats = { panels: doc.panels.length, components: {}, code: [], codeWarnings: [], componentWarnings: [], htmlWarnings: [] };
+  const stats = { panels: doc.panels.length, components: {}, code: [], codeWarnings: [], componentWarnings: [], htmlWarnings: [], mathWarnings: [] };
   const ui = language.ui;
-  const ctx = { seq: 0, stats, ui, images: { baseDir, known: knownImages }, code: { baseDir: codeDir, known: knownCode } };
+  const ctx = { seq: 0, stats, ui, dir: language.dir, images: { baseDir, known: knownImages }, code: { baseDir: codeDir, known: knownCode } };
   const loose = doc.intro.find((b) => b.type === 'fence' && COMPONENTS.get(b.lang)?.panelOnly);
   if (loose) throw new RenderError(`${loose.lang} belongs in a panel: put it under the ## heading of the panel the answer changes`, { line: loose.line, component: loose.lang, example: COMPONENTS.get(loose.lang).example });
   const introHtml = renderBlocks(doc.intro, ctx);
   const panels = doc.panels.map((p) => ({ ...p, html: renderBlocks(p.blocks, ctx) }));
-  const body = TEMPLATES[doc.meta.template]({ meta: doc.meta, introHtml, panels, ui });
-  const html = shell({ meta: doc.meta, language, body, source, embedded: themes.embedFor(doc.meta.theme, 'page') });
+  const page = TEMPLATES[doc.meta.template]({ meta: doc.meta, introHtml, panels, ui, language });
+  // A right-to-left page isolates each run of text with no right-to-left letter as left to right (src/bidi.js).
+  const body = language.dir === 'rtl' ? isolateLtrRuns(page) : page;
+  const html = shell({ meta: doc.meta, language, body, source, embedded: themes.embedFor(doc.meta.theme, 'page'), update, closeAfter });
   return { html, warnings, stats, meta: doc.meta, language };
 }
 
@@ -70,8 +76,9 @@ function hasVisuals({ intro, panels }) {
 
 export function renderBlocks(blocks, ctx) {
   return blocks.map((b) => {
-    const { result, notes } = collectHtmlNotes(() => (b.type === 'md' ? `<div class="am-md">${md(b.text)}</div>` : renderFence(b, ctx)));
-    noteHtml(b, notes, ctx);
+    const { result, notes } = collectHtmlNotes(() => (b.type === 'md' ? `<div class="am-md">${md(b.text)}</div>` : renderFence(b, ctx)), { math: !ctx.video });
+    noteHtml(b, notes.filter((n) => !n.math), ctx);
+    noteMath(b, notes.filter((n) => n.math), ctx);
     return embedImages(b, result, ctx);
   }).join('\n');
 }
@@ -88,6 +95,18 @@ function noteHtml(block, notes, ctx) {
     const n = used.get(tag) ?? 0;
     used.set(tag, n + 1);
     ctx.stats.htmlWarnings.push({ line: first + (places[Math.min(n, places.length - 1)] ?? 0), message });
+  }
+}
+
+// The math notes of one block, each with the draft line of its formula. The nth note about the same formula points at its nth place in the block.
+function noteMath(block, notes, ctx) {
+  if (!notes.length || !ctx.stats.mathWarnings) return;
+  const first = block.type === 'md' ? block.line : block.line + 1;
+  const next = new Map();
+  for (const { at, message } of notes) {
+    const index = block.text.indexOf(at, next.get(at) ?? 0);
+    next.set(at, index + 1);
+    ctx.stats.mathWarnings.push({ line: first + (index < 0 ? 0 : block.text.slice(0, index).split('\n').length - 1), message });
   }
 }
 
@@ -116,7 +135,7 @@ function renderFence(block, ctx) {
   ctx.stats.components[lang] = (ctx.stats.components[lang] ?? 0) + 1;
   try {
     const warn = ({ line: at = 0, message }) => ctx.stats.componentWarnings?.push({ line: line + at, component: lang, message });
-    return comp.render(text, { args, uid: () => `am${++ctx.seq}`, ui: ctx.ui, video: ctx.video, warn });
+    return comp.render(text, { args, uid: () => `am${++ctx.seq}`, ui: ctx.ui, dir: ctx.dir ?? 'ltr', video: ctx.video, warn });
   } catch (err) {
     if (!(err instanceof ComponentError)) throw err;
     throw new RenderError(err.message, {
@@ -140,9 +159,66 @@ function codeBlock(block, ctx) {
   }
 }
 
-export function timestamp(d = new Date()) {
+// order: 'ymd' (2026-10-07 22:44) or 'dmy' (7.10.2026 22:44, the way Hebrew readers write a date).
+export function timestamp(d = new Date(), order = 'ymd') {
   const p = (n) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+  const time = `${p(d.getHours())}:${p(d.getMinutes())}`;
+  if (order === 'dmy') return `${d.getDate()}.${d.getMonth() + 1}.${d.getFullYear()} ${time}`;
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${time}`;
+}
+
+// The line at the top of the page, above the title. On a right-to-left page the product name with its version, the time and the star link are each
+// isolated, so the Latin name, the version and the date do not merge into one left-to-right run. The star link is English in
+// every language, like the product name.
+function colophon(language) {
+  const repo = 'https://github.com/QingYunA/answer-me-with-html';
+  const link = `<a href="${repo}" target="_blank" rel="noopener">Answer me with HTML</a>`;
+  const star = `<a href="${repo}" target="_blank" rel="noopener">★ Star on GitHub</a>`;
+  const label = esc(language.ui.generated ?? 'Generated by');
+  const time = esc(timestamp(new Date(), language.dateOrder));
+  if (language.dir === 'rtl') return `<p class="am-colophon">${label} <bdi>${link} ${VERSION}</bdi> · <bdi>${time}</bdi> · <bdi>${star}</bdi></p>`;
+  return `<p class="am-colophon">${label} ${link} ${VERSION} · ${time} · ${star}</p>`;
+}
+
+// The colophon opens the page header. It goes in after src/bidi.js has run over the body, since it isolates its own runs. The
+// template's header is the first one in the body: the intro and the panels come after it.
+const withColophon = (body, language) => body.replace('<header class="am-head">', (head) => `${head}${colophon(language)}`);
+
+// The new-version button and its popover (a native popover, so it opens, closes on Esc and on a click outside with no script). The
+// button starts hidden; src/runtime/update.js shows it where the browser has popovers. withoutUpdateNotice takes both out again.
+function updateNotice(ui, update, labelKey) {
+  if (!update) return { button: '', popover: '' };
+  const t = ui.update;
+  // The highlights in the page language, else in English (the labels fall back the same way). `code` spans become <code>.
+  const lines = update.highlights?.[labelKey] ?? update.highlights?.en;
+  const notes = lines
+    ? `<p class="am-update-label">${esc(t.whatsNew)}</p>\n<ul class="am-update-notes">${lines.map((l) => `<li>${esc(l).replace(/`([^`]+)`/g, '<code>$1</code>')}</li>`).join('')}</ul>\n`
+    : '';
+  const plain = t.button.replace('{version}', update.latest);
+  const fill = (s) => esc(s).replace('{version}', `<bdi>${esc(update.latest)}</bdi>`).replace('{current}', `<bdi>${esc(update.current)}</bdi>`);
+  // The command is code and reads left to right; the line for the agent is a sentence in the page language.
+  const row = (text, code) => `<div class="am-update-row">${code ? `<code dir="ltr">${esc(text)}</code>` : `<span>${esc(text)}</span>`}<button class="am-btn" type="button" data-am="copy-text" data-text="${esc(text)}" data-done="${esc(ui.done)}">${esc(ui.copyCode)}</button></div>`;
+  return {
+    button: `<button class="am-btn am-btn--update" type="button" data-am="update" popovertarget="am-update" aria-label="${esc(plain)}" hidden>● <span class="am-update-text">${fill(t.button)}</span></button>\n`,
+    popover: `<div class="am-update" id="am-update" popover>
+<p class="am-update-title">${fill(t.button)}</p>
+<p>${fill(t.current)}</p>
+${notes}<p class="am-update-label">${esc(t.run)}</p>
+${row(update.command, true)}
+<p class="am-update-label">${esc(t.agent)}</p>
+${row(t.agentText, false)}
+<a href="https://github.com/QingYunA/answer-me-with-html/releases" target="_blank" rel="noopener">${esc(t.notes)}</a>
+</div>
+`,
+  };
+}
+
+// The page without its new-version button and popover, for a reader on another device (src/serve.js): the notice is for the person
+// who made the page. Both come before the body, so the first match is the one updateNotice wrote.
+export function withoutUpdateNotice(html) {
+  return html
+    .replace(/<button class="am-btn am-btn--update"[^]*?<\/button>\n/, '')
+    .replace(/<div class="am-update" id="am-update" popover>[^]*?\n<\/div>\n/, '');
 }
 
 // A diagram with change markers carries a count row; only then the page needs the delta styles and script.
@@ -168,11 +244,15 @@ function lightboxShell(ui, hasDiagrams) {
 `;
 }
 
-function shell({ meta, language, body, source, embedded }) {
+// Seconds the page waits before it closes its tab; the page shows the countdown (src/runtime/close-after-reply.js).
+const CLOSE_AFTER_SECONDS = 3;
+
+function shell({ meta, language, body, source, embedded, update, closeAfter }) {
   const { ui, labelKey } = language;
+  const notice = updateNotice(ui, update, labelKey);
   const pick = (name, label, values, current) => `<label class="am-pick">${esc(label)}<select data-am="${name}">${values
     .map(([value, text]) => `<option value="${esc(value)}"${value === current ? ' selected' : ''}>${esc(text)}</option>`).join('')}</select></label>`;
-  const root = { lang: language.htmlLang, theme: meta.theme, mode: meta.mode, style: meta.style };
+  const root = { lang: language.htmlLang, dir: language.dir, theme: meta.theme, mode: meta.mode, style: meta.style };
   return `<!doctype html>
 ${rootTag(root)}
 <head>
@@ -181,21 +261,21 @@ ${rootTag(root)}
 <meta name="generator" content="Answer me with HTML ${VERSION}">
 <title>${esc(meta.title || 'Answer me with HTML')}</title>
 <style>
-${pageCss(embedded, { diff: body.includes('class="am-codeblock am-codeblock--diff"'), delta: hasDelta(body) })}
+${pageCss(embedded, { diff: body.includes('class="am-codeblock am-codeblock--diff"'), delta: hasDelta(body), rtl: language.dir === 'rtl', math: hasMath(body), update: Boolean(update), closeAfter, theme: meta.theme })}
 </style>
 </head>
 <body>
 <div class="am-toolbar"${rootCarrierAttrs(root)}>
-${pick('theme', ui.theme, embedded.map((t) => [t.name, t.label[labelKey]]), meta.theme)}
+${notice.button}${pick('theme', ui.theme, embedded.map((t) => [t.name, t.label[labelKey]]), meta.theme)}
 ${pick('mode', ui.modeLabel, Object.entries(ui.mode), meta.mode)}
-<button class="am-btn am-btn--reply" type="button" data-am="reply" data-ui="${esc(JSON.stringify({ ...ui.reply, done: ui.done }))}">${esc(ui.reply.button)}</button>
+<button class="am-btn am-btn--reply" type="button" data-am="reply" data-ui="${esc(JSON.stringify({ ...ui.reply, done: ui.done, remarks: ui.remark.section, kinds: ui.remark.kinds, ...(closeAfter ? { closeAfter: { seconds: CLOSE_AFTER_SECONDS, ...ui.closeAfter } } : {}) }))}">${esc(ui.reply.button)}</button>
+<button class="am-btn am-btn--remark" type="button" data-am="remark" data-ui="${esc(JSON.stringify(ui.remark))}">${esc(ui.remark.button)}</button>
 <button class="am-btn" type="button" data-am="copy" data-done="${esc(ui.done)}">${esc(ui.copy)}</button>
 </div>
-${body}
-${lightboxShell(ui, body.includes('class="am-diagram'))}<footer class="am-colophon">Generated by <a href="https://github.com/QingYunA/answer-me-with-html" target="_blank" rel="noopener">Answer me with HTML</a> ${VERSION} · ${esc(timestamp())}</footer>
-${sourceTag(source)}
+${notice.popover}${withColophon(body, language)}
+${lightboxShell(ui, body.includes('class="am-diagram'))}${sourceTag(source)}
 <script>
-${RUNTIME_JS}${hasDelta(body) ? DELTA_JS : ''}</script>
+${RUNTIME_JS}${hasDelta(body) ? DELTA_JS : ''}${update ? UPDATE_JS : ''}${closeAfter ? CLOSE_AFTER_JS : ''}</script>
 </body>
 </html>
 `;
